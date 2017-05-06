@@ -5,7 +5,7 @@
 #include <vector>
 #include <string>
 
-static constexpr int MAX_BIT_WIDTH = 64;
+static constexpr int MAX_BIT_WIDTH = 8 * sizeof(uintmax_t);
 static constexpr bool check_width(unsigned width)
 {
     return width > 0 && width < MAX_BIT_WIDTH;
@@ -22,6 +22,10 @@ static void assert_same_width(const VarInt::VarInt& a, const VarInt::VarInt& b)
 
 namespace VarInt
 {
+    /*
+     * A variable integer class. The integer is treated as a sequence of bits,
+     * so there is no notion of signed-ness.
+     */
     class VarInt
     {
         public:
@@ -47,6 +51,12 @@ namespace VarInt
                 this->_val = val;
                 this->_width = width;
                 this->_overflowed = false;
+            }
+
+            VarInt(const std::string& str)
+            {
+                throw std::exception("unimplemented");
+                // convert verilog integer literal syntax to object
             }
 
             VarInt(const VarInt& other) noexcept 
@@ -100,16 +110,6 @@ namespace VarInt
             }
 
             /* Setters */
-            void set_value(uintmax_t newval)
-            {
-                // throw if newval does not fit //
-            }
-
-            void set_value(uintmax_t newval, unsigned new_width)
-            {
-                // throw if newval does not fit //
-            }
-
             void set_value(const VarInt& other) noexcept
             {
                 this->_val = other._val;
@@ -119,26 +119,34 @@ namespace VarInt
 
             VarInt operator + (const VarInt& other) const noexcept
             {
+                VarInt ret = *this;
+                ret += other;
+                return ret;
             }
 
             VarInt& operator += (const VarInt& other) noexcept
             {
-
+                this->_val += other._val;
+                this->check_and_set_overflow();
+                return *this;
             }
 
             VarInt operator - (const VarInt& other) noexcept
             {
-
+                VarInt ret = *this;
+                ret -= other;
+                return ret;
             }
 
             VarInt& operator -= (const VarInt& other) noexcept
             {
-
+                this->_val -= other._val;
+                this->check_and_set_overflow();
+                return *this;
             }
 
             VarInt operator * (const VarInt& other) noexcept
             {
-
             }
 
             VarInt& operator *= (const VarInt& other) noexcept
@@ -167,39 +175,65 @@ namespace VarInt
 
             VarInt& operator ++ () noexcept
             {
-
+                this->_val++;
+                this->check_and_set_overflow();
+                return *this;
             }
 
             VarInt operator ++ (int) noexcept
             {
+                VarInt ret = *this;
+                ++(*this);
+                return ret;
             }
 
             VarInt& operator -- () noexcept
             {
+                this->_val--;
+                this->check_and_set_overflow();
+                return *this;
             }
 
             VarInt operator -- (int) noexcept
             {
+                VarInt ret = *this;
+                --(*this);
+                return ret;
             }
 
             VarInt operator & (const VarInt& other) const
             {
                 assert_same_width(*this, other);
+                VarInt ret = *this;
+                ret._val = this->_val & other._val;
+                return ret;
+            }
+
+            VarInt operator & (const std::string& str) const
+            {
+                throw std::exception("bit concat unimplemented");
             }
 
             VarInt& operator &= (const VarInt& other)
             {
                 assert_same_width(*this, other);
+                this->_val &= other._val;
+                return *this;
             }
 
             VarInt operator | (const VarInt& other) const
             {
                 assert_same_width(*this, other);
+                VarInt ret = *this;
+                ret._val = this->_val | other._val;
+                return ret;
             }
 
             VarInt& operator |= (const VarInt& other)
             {
                 assert_same_width(*this, other);
+                this->_val |= other._val;
+                return *this;
             }
 
             VarInt operator ~ () const noexcept
@@ -212,11 +246,16 @@ namespace VarInt
             VarInt operator ^ (const VarInt& other) const
             {
                 assert_same_width(*this, other);
+                VarInt ret = *this;
+                ret._val = this->_val ^ other._val;
+                return ret;
             }
 
             VarInt& operator ^= (const VarInt& other)
             {
                 assert_same_width(*this, other);
+                this->_val ^= other._val;
+                return *this;
             }
 
             VarInt operator << (unsigned bits) const noexcept
@@ -236,12 +275,22 @@ namespace VarInt
 
             VarInt arith_rshift(unsigned bits)
             {
-
+                VarInt ret = *this;
+                ret._val >>= bits;
+                return ret;
             }
 
             VarInt logical_rshift(unsigned bits)
             {
-
+                VarInt ret = *this;
+                bool sext_required = ret[ret.width() - 1];
+                ret._val >>= bits;
+                
+                // generate mask for sext
+                uintmax_t mask = ((~0) >> (_width - bits)) << (_width - bits);
+                mask &= ~((~0) << _width);
+                ret._val &= mask;
+                return ret;
             }
 
             bool is_set(unsigned bit_index) const noexcept
@@ -291,7 +340,7 @@ namespace VarInt
                 return (is_signed) ? std::to_string(this->to_signed()) : std::to_string(to_unsigned());
             }
 
-            VarInt sext(unsigned new_width)
+            VarInt sext(unsigned new_width) const
             {
                 if (!check_width(new_width) || new_width < _width)
                     throw std::invalid_argument("Invalid width!");
@@ -305,7 +354,7 @@ namespace VarInt
                 return ret;
             }
 
-            VarInt usext(unsigned new_width)
+            VarInt usext(unsigned new_width) const
             {
                 if (!check_width(new_width) || new_width < _width)
                     throw std::invalid_argument("Invalid width!");
@@ -346,7 +395,7 @@ namespace VarInt
             unsigned _width;
             bool _overflowed;
 
-            void check_overflow()
+            void check_and_set_overflow() noexcept
             {
 
             }
