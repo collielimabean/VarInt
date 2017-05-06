@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <vector>
+#include <string>
 
 static constexpr int MAX_BIT_WIDTH = 64;
 static constexpr bool check_width(unsigned width)
@@ -9,29 +11,47 @@ static constexpr bool check_width(unsigned width)
     return width > 0 && width < MAX_BIT_WIDTH;
 }
 
-// behavior when signed & unsigned mix?
+static void assert_same_width(const VarInt::VarInt& a, const VarInt::VarInt& b)
+{
+    if (a.width() != b.width())
+        throw std::invalid_argument("");
+}
+
+
+// provide intmax_t/uintmax_t overloads for arithmetic operations? //
 
 namespace VarInt
 {
     class VarInt
     {
         public:
-            /* constructors */
+            VarInt::VarInt(uintmax_t val, unsigned width)
+            {
+                if (!check_width(width))
+                    throw std::invalid_argument("Bit width is zero or larger than max suppported.");
+                
+                this->_val = val;
+                this->_width = width;
+                this->_overflowed = false;          
+            }
 
-            VarInt::VarInt(uintmax_t val, unsigned width, bool is_signed)
+            VarInt(intmax_t val, unsigned width)
             {
                 if (!check_width(width))
                     throw std::invalid_argument("Bit width is zero or larger than max suppported.");
 
+                // check width //
+                if (val >= (1 << width - 1))
+                    throw std::invalid_argument("Value is larger than what specified width can hold!");
+
                 this->_val = val;
                 this->_width = width;
-                this->_signed = is_signed;
-                this->_overflowed = false;          
+                this->_overflowed = false;
             }
 
             VarInt(const VarInt& other) noexcept 
             {
-
+                set_value(other);
             }
 
             ~VarInt() noexcept
@@ -39,19 +59,39 @@ namespace VarInt
             }
 
             /* Getters */
-            uintmax_t value() const noexcept
+            std::vector<bool> value() const noexcept
             {
-                return this->_val;
+                std::vector<bool> bitset;
+                bitset.reserve(_width);
+
+                for (unsigned i = 0; i < _width; i++)
+                    bitset[i] = is_set(i);
+                return bitset;
+            }
+
+            uintmax_t to_unsigned() const noexcept
+            {
+                return _val;
+            }
+
+            operator uintmax_t() const
+            {
+                return to_unsigned();
+            }
+
+            intmax_t to_signed() const noexcept
+            {
+                return static_cast<intmax_t>(_val | (~0 << (_width - 1)));
+            }
+
+            operator intmax_t() const
+            {
+                return to_signed();
             }
 
             unsigned width() const noexcept
             {
-                return this->_width;
-            }
-
-            bool is_signed() const noexcept
-            {
-                return this->_signed;
+                return _width;
             }
 
             bool overflowed() const noexcept
@@ -60,27 +100,140 @@ namespace VarInt
             }
 
             /* Setters */
-            void set_value(uintmax_t newval) noexcept
+            void set_value(uintmax_t newval)
             {
-
+                // throw if newval does not fit //
             }
 
             void set_value(uintmax_t newval, unsigned new_width)
             {
-
+                // throw if newval does not fit //
             }
 
+            void set_value(const VarInt& other) noexcept
+            {
+                this->_val = other._val;
+                this->_width = other._width;
+                this->_overflowed = other._overflowed;
+            }
 
+            VarInt operator + (const VarInt& other) const noexcept
+            {
+            }
 
-
-            /* Arithmetic */
-            // + - * / % � & | ~ ! < > += -= *= /= %= �= &= |= << >> >>= <<= == != <= >= && || ++ -- , [ ] //
-            VarInt add(VarInt other)
+            VarInt& operator += (const VarInt& other) noexcept
             {
 
             }
 
-            /* Bitwise */
+            VarInt operator - (const VarInt& other) noexcept
+            {
+
+            }
+
+            VarInt& operator -= (const VarInt& other) noexcept
+            {
+
+            }
+
+            VarInt operator * (const VarInt& other) noexcept
+            {
+
+            }
+
+            VarInt& operator *= (const VarInt& other) noexcept
+            {
+
+            }
+
+            VarInt operator / (const VarInt& other) const
+            {
+
+            }
+
+            VarInt& operator /= (const VarInt& other) noexcept
+            {
+            }
+
+            VarInt operator % (const VarInt& other) noexcept
+            {
+
+            }
+
+            VarInt& operator %= (const VarInt& other) noexcept
+            {
+
+            }
+
+            VarInt& operator ++ () noexcept
+            {
+
+            }
+
+            VarInt operator ++ (int) noexcept
+            {
+            }
+
+            VarInt& operator -- () noexcept
+            {
+            }
+
+            VarInt operator -- (int) noexcept
+            {
+            }
+
+            VarInt operator & (const VarInt& other) const
+            {
+                assert_same_width(*this, other);
+            }
+
+            VarInt& operator &= (const VarInt& other)
+            {
+                assert_same_width(*this, other);
+            }
+
+            VarInt operator | (const VarInt& other) const
+            {
+                assert_same_width(*this, other);
+            }
+
+            VarInt& operator |= (const VarInt& other)
+            {
+                assert_same_width(*this, other);
+            }
+
+            VarInt operator ~ () const noexcept
+            {
+                VarInt ret = *this;
+                ret._val = ~ret._val;
+                return ret;
+            }
+
+            VarInt operator ^ (const VarInt& other) const
+            {
+                assert_same_width(*this, other);
+            }
+
+            VarInt& operator ^= (const VarInt& other)
+            {
+                assert_same_width(*this, other);
+            }
+
+            VarInt operator << (unsigned bits) const noexcept
+            {
+                VarInt ret = *this;
+                ret._val <<= bits;
+                ret._val &= (~0 << ret._width);
+                return ret;
+            }
+
+            VarInt& operator <<= (unsigned bits) noexcept
+            {
+                this->_val <<= bits;
+                this->_val &= (~0 << this->_width);
+                return *this;
+            }
+
             VarInt arith_rshift(unsigned bits)
             {
 
@@ -91,10 +244,52 @@ namespace VarInt
 
             }
 
-            /* Relational */
+            bool is_set(unsigned bit_index) const noexcept
+            {
+                return (_val >> bit_index) & 0x01;
+            }
 
+            const bool operator [] (const unsigned index)
+            {
+                if (index >= _width)
+                    throw std::invalid_argument("Invalid index!");
+                return is_set(index);
+            }
 
             /* Misc functions */
+            std::string to_binary_str() const noexcept
+            {
+                std::string bstr;
+                bstr.append(std::to_string(_width));
+                bstr.append("'b");
+                for (unsigned i = 0; i < _width; i++)
+                    bstr.append(is_set(_width - i - 1) ? "1" : "0");
+                return bstr;                    
+            }
+
+            std::string to_hex_str() const noexcept
+            {
+                static const std::string hex_digits("0123456789ABCDEF");
+                std::string hstr;
+
+                // if length mismatch, pad //
+                unsigned hex_width = (_width % 4 == 0) ? _width : _width + (4 - _width);
+                hstr.append(std::to_string(hex_width));
+                hstr.append("'h");
+
+                for (unsigned i = 0; i < hex_width; i += 4)
+                {
+                    unsigned hex_digit = (_val >> (hex_width - i - 4)) & 0x0F;
+                    hstr.append(std::string(1, hex_digits[hex_digit]));
+                }
+
+                return hstr;
+            }
+
+            std::string to_decimal_str(bool is_signed) const noexcept
+            {
+                return (is_signed) ? std::to_string(this->to_signed()) : std::to_string(to_unsigned());
+            }
 
             VarInt sext(unsigned new_width)
             {
@@ -103,7 +298,11 @@ namespace VarInt
                 else if (new_width == _width)
                     return *this;
 
-                // sext //
+                // test MSB of current //
+                VarInt ret = *this;
+                ret._val |= (~0 << _width);
+                ret._width = new_width;
+                return ret;
             }
 
             VarInt usext(unsigned new_width)
@@ -114,6 +313,9 @@ namespace VarInt
                     return *this;
 
                 // usext //
+                VarInt ret = *this;
+                ret._width = new_width;
+                return ret;
             }
 
             VarInt truncate(unsigned new_width)
@@ -124,28 +326,29 @@ namespace VarInt
                     return *this;
 
                 // truncate //
+                VarInt ret = *this;
+                ret._val &= ~((~0) << new_width);
+                ret._width = new_width;
             }
 
-            VarInt slice(unsigned start, unsigned end)
+            VarInt slice(unsigned start, unsigned end) const
             {
-                // inclusive/exclusive?
+                // inclusive/exclusive end?
             }
 
-            VarInt slice(unsigned start)
+            VarInt slice(unsigned start) const
             {
 
             }
-
-            /* Operators
-            * arithmetic: throw if not same bitwidth
-            * relational: no issues
-            * + - * / % � & | ~ ! < > += -= *= /= %= �= &= |= << >> >>= <<= == != <= >= && || ++ -- , [ ]
-            */
 
         private:
             uintmax_t _val;
             unsigned _width;
-            bool _signed;
             bool _overflowed;
+
+            void check_overflow()
+            {
+
+            }
     };
 }
