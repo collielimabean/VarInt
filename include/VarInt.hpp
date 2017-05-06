@@ -18,7 +18,8 @@ static void assert_same_width(const VarInt::VarInt& a, const VarInt::VarInt& b)
 }
 
 
-// provide intmax_t/uintmax_t overloads for arithmetic operations? //
+// TODO: check wraparounds for arithmetic operations
+// TODO: remove assert_same_width - just silently usext
 
 namespace VarInt
 {
@@ -119,6 +120,7 @@ namespace VarInt
 
             VarInt operator + (const VarInt& other) const noexcept
             {
+                // XXX: handle wraparound
                 VarInt ret = *this;
                 ret += other;
                 return ret;
@@ -126,13 +128,15 @@ namespace VarInt
 
             VarInt& operator += (const VarInt& other) noexcept
             {
+                // XXX: handle wraparound
                 this->_val += other._val;
                 this->check_and_set_overflow();
                 return *this;
             }
 
-            VarInt operator - (const VarInt& other) noexcept
+            VarInt operator - (const VarInt& other) const noexcept
             {
+                // XXX: handle wraparound
                 VarInt ret = *this;
                 ret -= other;
                 return ret;
@@ -140,41 +144,47 @@ namespace VarInt
 
             VarInt& operator -= (const VarInt& other) noexcept
             {
+                // XXX: handle wraparound
                 this->_val -= other._val;
                 this->check_and_set_overflow();
                 return *this;
             }
 
-            VarInt operator * (const VarInt& other) noexcept
+            VarInt operator * (const VarInt& other) const noexcept
             {
+                // see if it matters if we need to be signed/unsigned
             }
 
             VarInt& operator *= (const VarInt& other) noexcept
             {
-
+                // see if it matters if we need to be signed/unsigned
             }
 
             VarInt operator / (const VarInt& other) const
             {
-
+                if (other._val == 0)
+                    throw std::logic_error("Attempted division by zero!");
+                // see if it matters if we need to be signed/unsigned
             }
 
             VarInt& operator /= (const VarInt& other) noexcept
             {
+                // see if it matters if we need to be signed/unsigned
             }
 
             VarInt operator % (const VarInt& other) noexcept
             {
-
+                // see if it matters if we need to be signed/unsigned
             }
 
             VarInt& operator %= (const VarInt& other) noexcept
             {
-
+                // see if it matters if we need to be signed/unsigned
             }
 
             VarInt& operator ++ () noexcept
             {
+                // XXX: handle wraparound
                 this->_val++;
                 this->check_and_set_overflow();
                 return *this;
@@ -182,6 +192,7 @@ namespace VarInt
 
             VarInt operator ++ (int) noexcept
             {
+                // XXX: handle wraparound
                 VarInt ret = *this;
                 ++(*this);
                 return ret;
@@ -189,6 +200,7 @@ namespace VarInt
 
             VarInt& operator -- () noexcept
             {
+                // XXX: handle wraparound
                 this->_val--;
                 this->check_and_set_overflow();
                 return *this;
@@ -196,6 +208,7 @@ namespace VarInt
 
             VarInt operator -- (int) noexcept
             {
+                // XXX: handle wraparound
                 VarInt ret = *this;
                 --(*this);
                 return ret;
@@ -397,7 +410,9 @@ namespace VarInt
 
             void check_and_set_overflow() noexcept
             {
-
+                // check if any bits are past index width - 1.
+                // if so, set _overflowed to true, false otherwise
+                // if any bits above, clear them. Defined behavior is to wrap around.
             }
     };
 }
