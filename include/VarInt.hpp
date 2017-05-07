@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <vector>
 #include <string>
+#include <regex>
 
 static constexpr int MAX_BIT_WIDTH = 8 * sizeof(uintmax_t);
 static constexpr bool check_width(unsigned width)
@@ -11,17 +12,9 @@ static constexpr bool check_width(unsigned width)
     return width > 0 && width < MAX_BIT_WIDTH;
 }
 
-static void assert_same_width(const VarInt::VarInt& a, const VarInt::VarInt& b)
-{
-    if (a.width() != b.width())
-        throw std::invalid_argument("");
-}
+static constexpr char *INTEGER_LITERAL_REGEX = "(\\d+)'([bohd])(.*)";
 
-
-// TODO: check wraparounds for arithmetic operations
-// TODO: remove assert_same_width - just silently usext
-
-namespace VarInt
+namespace varint
 {
     /*
      * A variable integer class. The integer is treated as a sequence of bits,
@@ -30,14 +23,38 @@ namespace VarInt
     class VarInt
     {
         public:
+            static uintmax_t max_unsigned(unsigned width) noexcept
+            {
+                return width ? (1 << width) - 1 : 0;
+            }
+
+            static uintmax_t min_unsigned(unsigned width) noexcept
+            {
+                return 0;
+            }
+
+            static intmax_t max_signed(unsigned width) noexcept
+            {
+                return width ? (1 << (width - 1)) - 1 : 0;
+            }
+
+            static intmax_t min_signed(unsigned width) noexcept
+            {
+                return width ? (~0) << (width - 1) : 0;
+            }
+
             VarInt::VarInt(uintmax_t val, unsigned width)
             {
                 if (!check_width(width))
                     throw std::invalid_argument("Bit width is zero or larger than max suppported.");
                 
+                // check width //
+                if (val > VarInt::max_unsigned(width))
+                    throw std::invalid_argument("Value is larger than what specified width can hold!");
+
+                // truncate to length //
                 this->_val = val;
                 this->_width = width;
-                this->_overflowed = false;          
             }
 
             VarInt(intmax_t val, unsigned width)
@@ -46,18 +63,65 @@ namespace VarInt
                     throw std::invalid_argument("Bit width is zero or larger than max suppported.");
 
                 // check width //
-                if (val >= (1 << width - 1))
+                if (val > VarInt::max_signed(width) || val < VarInt::min_signed(width))
                     throw std::invalid_argument("Value is larger than what specified width can hold!");
 
                 this->_val = val;
                 this->_width = width;
-                this->_overflowed = false;
+                this->_val &= ~((~0) << _width);
             }
 
             VarInt(const std::string& str)
             {
-                throw std::exception("unimplemented");
-                // convert verilog integer literal syntax to object
+                std::regex literal_regex(INTEGER_LITERAL_REGEX);
+                std::smatch match;
+                if (!std::regex_match(str, match, literal_regex))
+                    throw std::invalid_argument("Failed to parse literal!");
+
+                if (match.size() != 4)
+                    throw std::invalid_argument("Failed to parse literal!");
+
+                this->_width = std::stoi(match[1]);
+
+                unsigned base;
+                switch (match[2].str()[0])
+                {
+                    case 'b':
+                        base = 2;
+                        break;
+                    case 'd':
+                        base = 10;
+                        break;
+                    case 'h':
+                        base = 16;
+                        break;
+                    case 'o':
+                        base = 8;
+                        break;
+                    default:
+                        throw std::invalid_argument("Unrecognized base detected!");
+                }
+
+                // replace "_", a valid separator in literals
+                std::string valstr;
+                for (auto& c : match[3].str())
+                    if (c != '_')
+                        valstr.append(1, c);
+
+                // add'l verification //
+                if (base == 2 && valstr.length() != _width)
+                    throw std::invalid_argument("Bad binary string supplied!");
+
+                if (base == 8 && valstr.length() * 3 != _width)
+                    throw std::invalid_argument("Bad octal string supplied!");
+
+                if (base == 16 && valstr.length() * 4 != _width)
+                    throw std::invalid_argument("Bad hex string supplied!");
+
+                // parse, then check //
+                this->_val = std::stoull(valstr, 0, base);
+                if (base == 10 && _val > VarInt::max_unsigned(_width))
+                    throw std::invalid_argument("Decimal value is larger than max value possible by width!");
             }
 
             VarInt(const VarInt& other) noexcept 
@@ -92,7 +156,7 @@ namespace VarInt
 
             intmax_t to_signed() const noexcept
             {
-                return static_cast<intmax_t>(_val | (~0 << (_width - 1)));
+                return static_cast<intmax_t>(_val);
             }
 
             operator intmax_t() const
@@ -105,22 +169,16 @@ namespace VarInt
                 return _width;
             }
 
-            bool overflowed() const noexcept
-            {
-                return _overflowed;
-            }
-
             /* Setters */
             void set_value(const VarInt& other) noexcept
             {
                 this->_val = other._val;
                 this->_width = other._width;
-                this->_overflowed = other._overflowed;
             }
 
+            /* Arithmetic functions */
             VarInt operator + (const VarInt& other) const noexcept
             {
-                // XXX: handle wraparound
                 VarInt ret = *this;
                 ret += other;
                 return ret;
@@ -128,15 +186,13 @@ namespace VarInt
 
             VarInt& operator += (const VarInt& other) noexcept
             {
-                // XXX: handle wraparound
                 this->_val += other._val;
-                this->check_and_set_overflow();
+                this->clear_out_of_range_bits();
                 return *this;
             }
 
             VarInt operator - (const VarInt& other) const noexcept
             {
-                // XXX: handle wraparound
                 VarInt ret = *this;
                 ret -= other;
                 return ret;
@@ -144,55 +200,65 @@ namespace VarInt
 
             VarInt& operator -= (const VarInt& other) noexcept
             {
-                // XXX: handle wraparound
                 this->_val -= other._val;
-                this->check_and_set_overflow();
+                this->clear_out_of_range_bits();
                 return *this;
             }
 
             VarInt operator * (const VarInt& other) const noexcept
             {
-                // see if it matters if we need to be signed/unsigned
+                VarInt ret = *this;
+                ret *= other;
+                return ret;
             }
 
             VarInt& operator *= (const VarInt& other) noexcept
             {
-                // see if it matters if we need to be signed/unsigned
+                this->_val *= other._val;
+                this->clear_out_of_range_bits();
+                return *this;
             }
 
             VarInt operator / (const VarInt& other) const
             {
                 if (other._val == 0)
                     throw std::logic_error("Attempted division by zero!");
-                // see if it matters if we need to be signed/unsigned
+                
+                VarInt ret = *this;
+                ret /= other;
+                return ret;
             }
 
             VarInt& operator /= (const VarInt& other) noexcept
             {
-                // see if it matters if we need to be signed/unsigned
+                this->_val /= other._val;
+                this->clear_out_of_range_bits();
+                return *this;
             }
 
             VarInt operator % (const VarInt& other) noexcept
             {
-                // see if it matters if we need to be signed/unsigned
+                VarInt ret = *this;
+                ret %= other;
+                return ret;
             }
 
             VarInt& operator %= (const VarInt& other) noexcept
             {
-                // see if it matters if we need to be signed/unsigned
+                this->_val %= other._val;
+                this->clear_out_of_range_bits();
+                return *this;
             }
 
             VarInt& operator ++ () noexcept
             {
-                // XXX: handle wraparound
                 this->_val++;
-                this->check_and_set_overflow();
+                this->clear_out_of_range_bits();
                 return *this;
             }
 
             VarInt operator ++ (int) noexcept
             {
-                // XXX: handle wraparound
                 VarInt ret = *this;
                 ++(*this);
                 return ret;
@@ -200,51 +266,41 @@ namespace VarInt
 
             VarInt& operator -- () noexcept
             {
-                // XXX: handle wraparound
                 this->_val--;
-                this->check_and_set_overflow();
+                this->clear_out_of_range_bits();
                 return *this;
             }
 
             VarInt operator -- (int) noexcept
             {
-                // XXX: handle wraparound
                 VarInt ret = *this;
                 --(*this);
                 return ret;
             }
 
-            VarInt operator & (const VarInt& other) const
+            /* Bitwise functions */
+            VarInt operator & (const VarInt& other) const noexcept
             {
-                assert_same_width(*this, other);
                 VarInt ret = *this;
-                ret._val = this->_val & other._val;
+                ret._val &= other._val;
                 return ret;
             }
 
-            VarInt operator & (const std::string& str) const
+            VarInt& operator &= (const VarInt& other) noexcept
             {
-                throw std::exception("bit concat unimplemented");
-            }
-
-            VarInt& operator &= (const VarInt& other)
-            {
-                assert_same_width(*this, other);
                 this->_val &= other._val;
                 return *this;
             }
 
-            VarInt operator | (const VarInt& other) const
+            VarInt operator | (const VarInt& other) const noexcept
             {
-                assert_same_width(*this, other);
                 VarInt ret = *this;
-                ret._val = this->_val | other._val;
+                ret._val |= other._val;
                 return ret;
             }
 
-            VarInt& operator |= (const VarInt& other)
+            VarInt& operator |= (const VarInt& other) noexcept
             {
-                assert_same_width(*this, other);
                 this->_val |= other._val;
                 return *this;
             }
@@ -256,17 +312,15 @@ namespace VarInt
                 return ret;
             }
 
-            VarInt operator ^ (const VarInt& other) const
+            VarInt operator ^ (const VarInt& other) const noexcept
             {
-                assert_same_width(*this, other);
                 VarInt ret = *this;
-                ret._val = this->_val ^ other._val;
+                ret._val ^= this->_val;
                 return ret;
             }
 
-            VarInt& operator ^= (const VarInt& other)
+            VarInt& operator ^= (const VarInt& other)  noexcept
             {
-                assert_same_width(*this, other);
                 this->_val ^= other._val;
                 return *this;
             }
@@ -350,7 +404,15 @@ namespace VarInt
 
             std::string to_decimal_str(bool is_signed) const noexcept
             {
-                return (is_signed) ? std::to_string(this->to_signed()) : std::to_string(to_unsigned());
+                std::string str;
+                
+                str.append(std::to_string(_width));
+                str.append("'d");
+                if (is_signed)
+                    str.append(std::to_string(this->to_signed()));
+                else
+                    str.append(std::to_string(to_unsigned()));
+                return str;
             }
 
             VarInt sext(unsigned new_width) const
@@ -395,24 +457,71 @@ namespace VarInt
 
             VarInt slice(unsigned start, unsigned end) const
             {
-                // inclusive/exclusive end?
+                if (!check_width(start) || !check_width(end) 
+                    || start > _width || end > _width || start == end)
+                    throw std::invalid_argument("Bad start/end indices!");
+
+                if (start > end)
+                {
+                    unsigned tmp = start;
+                    start = end;
+                    end = tmp;
+                }
+
+                if (start == end + 1)
+                    return VarInt(uintmax_t(is_set(start) ? 1 : 0), 1);
+
+                VarInt ret = *this;
+                ret._val >>= start;
+                ret._val &= ~((~0) << (end - start));
+                return ret;
             }
 
             VarInt slice(unsigned start) const
             {
+                return this->slice(start, _width);
+            }
 
+            VarInt operator & (const std::string& str) const
+            {
+                VarInt ret = *this;
+                ret &= str;
+                return *this;
+            }
+
+            VarInt& operator &= (const std::string& str)
+            {
+                std::string valstr;
+                for (auto& c : str)
+                {
+                    switch (c)
+                    {
+                    case '0': case '1':
+                        valstr.append(1, c);
+                    case '_':
+                        continue;
+                    default:
+                        throw std::invalid_argument("Bad bitstring supplied!");
+                    }
+                }
+
+                if (!check_width(_width + valstr.length()))
+                    throw std::invalid_argument("Concat would result in integer past supported widths!");
+
+                _width += valstr.length();
+                for (size_t i = 0; i < valstr.length(); i++)
+                    _val = (_val << 1) | ((valstr[i] == '0') ? 0 : 1);
+
+                return *this;
             }
 
         private:
             uintmax_t _val;
             unsigned _width;
-            bool _overflowed;
 
-            void check_and_set_overflow() noexcept
+            void clear_out_of_range_bits() noexcept
             {
-                // check if any bits are past index width - 1.
-                // if so, set _overflowed to true, false otherwise
-                // if any bits above, clear them. Defined behavior is to wrap around.
+                _val &= ~((~0) << _width);
             }
     };
 }
