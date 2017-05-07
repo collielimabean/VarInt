@@ -12,7 +12,7 @@ static constexpr bool check_width(unsigned width)
     return width > 0 && width < MAX_BIT_WIDTH;
 }
 
-static constexpr char *INTEGER_LITERAL_REGEX = "(\\d+)'([bohd])(.*)";
+static constexpr const char *INTEGER_LITERAL_REGEX = "(\\d+)'([bohd])(.*)";
 
 namespace varint
 {
@@ -43,7 +43,7 @@ namespace varint
                 return width ? (~0) << (width - 1) : 0;
             }
 
-            VarInt::VarInt(uintmax_t val, unsigned width)
+            VarInt(uintmax_t val, unsigned width)
             {
                 if (!check_width(width))
                     throw std::invalid_argument("Bit width is zero or larger than max suppported.");
